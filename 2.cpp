@@ -1,9 +1,11 @@
-#include <iomanip>
 #include <iostream>
 #include <vector>
-#include <string>
+#include <cstdlib>
+#include <ctime>
 #include <thread>
 #include <mutex>
+#include <iomanip>
+#include <string>
 #include <chrono>
 #include <random>
 
@@ -14,141 +16,111 @@ struct Date {
     int month;
     int year;
 
-    // Функция для проверки корректности даты
-    bool isValid() {
-        if (year < 1) return false;
-        if (month < 1 || month > 12) return false;
-        int daysInMonth[] = { 31, 28 + (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)), 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
-        return day >= 1 && day <= daysInMonth[month - 1];
-    }
-
-    // Оператор сравнения для сортировки и проверки диапазона
-    bool operator<(const Date& other) const {
-        if (year != other.year) return year < other.year;
-        if (month != other.month) return month < other.month;
-        return day < other.day;
-    }
-
-    // Метод для увеличения даты на один день
-    void increment() {
-        day++;
-        if (day > 30) { // Упрощенная проверка на количество дней
-            day = 1;
-            month++;
-        }
-        if (month > 12) {
-            month = 1;
-            year++;
-        }
-    }
-
-    // Метод для вывода даты
     void print() const {
         std::cout << day << "/" << month << "/" << year << std::endl;
     }
 };
 
-// Функция для вывода даты
-void printDate(const Date& date) {
-    std::cout << std::setw(2) << std::setfill('0') << date.day << "/"
-              << std::setw(2) << std::setfill('0') << date.month << "/"
-              << date.year << std::endl;
+// для генерации случайной даты
+Date randomDate() {
+    Date date;
+    date.year = rand() % 21 + 2000; 
+    date.month = rand() % 12 + 1;   
+    date.day = rand() % 31 + 1;      
+    
+    
+    if (date.month == 2) {
+        date.day = rand() % 28 + 1; 
+    } else if (date.month == 4 || date.month == 6 || date.month == 9 || date.month == 11) {
+        date.day = rand() % 30 + 1; 
+    }
+
+    return date;
 }
 
-// Функция для увеличения даты на один день
-void nextDay(Date& date) {
-    date.day++;
-    int daysInMonth[] = { 31, 28 + (date.year % 4 == 0 && (date.year % 100 != 0 || date.year % 400 == 0)), 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
-    if (date.day > daysInMonth[date.month - 1]) {
-        date.day = 1;
-        date.month++;
-        if (date.month > 12) {
-            date.month = 1;
-            date.year++;
+// находится ли дата в заданном диапазоне
+bool isDateInRange(const Date& date, const Date& start, const Date& end) {
+    
+    if (date.year < start.year || date.year > end.year) return false;
+    if (date.year == start.year && (date.month < start.month || (date.month == start.month && date.day < start.day))) return false;
+    if (date.year == end.year && (date.month > end.month || (date.month == end.month && date.day > end.day))) return false;
+    return true;
+}
+
+// Функция для проверки, находится ли дата в заданном диапазоне
+bool isDateInRange1(const Date& date, const Date& start, const Date& end) {
+    if (date.year < start.year || date.year > end.year) return false;
+    if (date.year == start.year && (date.month < start.month || (date.month == start.month && date.day < start.day))) return false;
+    if (date.year == end.year && (date.month > end.month || (date.month == end.month && date.day > end.day))) return false;
+    return true;
+}
+
+// Функция для обработки части массива дат
+void filterDates(const std::vector<Date>& dates, const Date& startDate, const Date& endDate, std::vector<Date>& result, std::mutex& mtx) {
+    for (const auto& date : dates) {
+        if (isDateInRange(date, startDate, endDate)) {
+            std::lock_guard<std::mutex> lock(mtx);
+            result.push_back(date);
         }
     }
 }
-
-// Функция для вывода всех дат в диапазоне(1 поток)
-void DateRange(const Date& start, const Date& end) {
-    Date current = start;
-
-    while (current.year < end.year || 
-           (current.year == end.year && (current.month < end.month || 
-           (current.month == end.month && current.day <= end.day)))) {
-        printDate(current);
-        nextDay(current);
-    }
-
-}
-
-
-// Функция для вывода всех дат в диапазоне(многопоток)
-void generateDates(Date start, Date end, std::vector<Date>& dates, std::mutex& mtx) {
-    while (start < end) {
-        std::lock_guard<std::mutex> lock(mtx);
-        dates.push_back(start);
-        start.increment();
-    }
-}
-
 
 
 int main() {
-    Date start = {1, 1, 2023}; // Начальная дата
-    Date end = {13, 1, 2023}; // Конечная дата
+    srand(static_cast<unsigned>(time(0))); // случайных чисел
 
-    const int numThreads = 4; // Количество потоков
-    std::vector<Date> dates;
-    std::mutex mtx;
+    const int SIZE = 1000000; // сколько
+    const int THREAD_COUNT = 4; // Количество потоков
+    std::vector<Date> dates(SIZE);
 
-    if (!start.isValid() || !end.isValid()) {
-        std::cout << "Неверные даты." << std::endl;
-        return 1;
+    // Генерация
+    for (int i = 0; i < SIZE; ++i) {
+        dates[i] = randomDate();
     }
 
-    if ((end.year < start.year) || 
-        (end.year == start.year && (end.month < start.month || 
-        (end.month == start.month && end.day < start.day)))) {
-        std::cout << "Вторая дата должна быть позже первой." << std::endl;
-        return 1;
-    }
+    
 
-    // Однопоточное вычисление
-    auto startSingle = chrono::high_resolution_clock::now(); // таймер для начала
-    DateRange(start, end);
-    auto endSingle = chrono::high_resolution_clock::now(); // таймер для конца
-    chrono::duration<double> elapsedSingle = endSingle - startSingle; // находим разницу таймером в секундах
+    // Задание диапазона
+    Date startDate = {1, 1, 2010}; // Начало диапазона
+    Date endDate = {31, 12, 2015}; // Конец диапазона
 
-    std::vector<std::thread> threads;
+    // Выбор дат в заданном диапазоне
+    std::cout << "Даты в диапазоне с " << startDate.day << "/" << startDate.month << "/" << startDate.year 
+              << " по " << endDate.day << "/" << endDate.month << "/" << endDate.year << ":\n   ";
 
+    
     // Многопоточное вычисление
     auto startMulti = chrono::high_resolution_clock::now(); //таймер для начала
-    // Определяем диапазон для каждого потока
-    int totalDays = (end.year - start.year) * 365 + (end.month - start.month) * 30 + (end.day - start.day);
-    int daysPerThread = totalDays / numThreads;
+    std::vector<Date> filteredDates;
+    std::mutex mtx;
 
-    for (int i = 0; i < numThreads; ++i) {
-        Date threadStart = start;
-        for (int j = 0; j < i * daysPerThread; ++j) {
-            threadStart.increment();
-        }
-        
-        Date threadEnd = threadStart;
-        for (int j = 0; j < daysPerThread; ++j) {
-            threadEnd.increment();
-            //if (threadEnd > end) break; // Если достигли конца диапазона
-        }
+    // Создание потоков для фильтрации дат
+    std::vector<std::thread> threads;
+    int chunkSize = SIZE / THREAD_COUNT;
 
-        threads.emplace_back(generateDates, threadStart, threadEnd, std::ref(dates), std::ref(mtx));
+    for (int i = 0; i < THREAD_COUNT; ++i) {
+        int startIdx = i * chunkSize;
+        int endIdx = (i == THREAD_COUNT - 1) ? SIZE : startIdx + chunkSize; // Обработка последнего чанка
+
+        threads.emplace_back(filterDates, std::ref(dates), startDate, endDate, std::ref(filteredDates), std::ref(mtx));
     }
 
     // Ожидание завершения всех потоков
-    for (auto& thread : threads) {
-        thread.join();
+    for (auto& th : threads) {
+        th.join();
     }
     auto endMulti = chrono::high_resolution_clock::now();//таймер для конца
     chrono::duration<double> elapsedMulti = endMulti - startMulti; // находим разницу таймеров в секундах
+    
+    // Однопоточное вычисление
+    auto startSingle = chrono::high_resolution_clock::now(); // таймер для начала
+    for (const auto& date : dates) {
+        if (isDateInRange(date, startDate, endDate)) {
+            date.print();
+        }
+    }
+    auto endSingle = chrono::high_resolution_clock::now(); // таймер для конца
+    chrono::duration<double> elapsedSingle = endSingle - startSingle; // находим разницу таймером в секундах
 
     // Вывод результатов
     cout << "(однопоточно): за " << elapsedSingle.count() << " секунд\n";
